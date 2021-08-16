@@ -1,72 +1,86 @@
+from UtilityClasses import GameObject
 from enemies import SimpleEnemy
-from math import inf
 from items import Whip
-from players import Player
 from important_variables import (
     screen_height,
-    screen_width,
+    screen_length,
     y_velocities
-    # consistency_keeper
 )
+from history_keeper import HistoryKeeper
 from velocity_calculator import VelocityCalculator
 from wall_of_death import WallOfDeath
 from platforms import Platform
+from players import Player
 
 class CollisionsFinder:
-    # Player or Enemy for character
-    def enemy_on_platform(platform: Platform, enemy: SimpleEnemy):
-        enemy_right_edge = enemy.x_coordinate + enemy.width
-        platform_end = platform.x_coordinate + platform.length
-        if enemy.x_coordinate < platform.x_coordinate:
-            # print("Teleport Left: ", enemy.x_coordinate - enemy.velocity, platform.x_coordinate)
-            return False
-        if enemy_right_edge > platform_end:
-            # print("Teleport Right: ", enemy_right_edge + enemy.velocity, platform_end)
-            return False
-        return True
-    def on_platform(platform, character, last_character_bottom=None):
-        within_platform_length = character.x_coordinate >= (
-            platform.x_coordinate - character.width) and (
-            character.x_coordinate <= platform.x_coordinate + platform.length)
-            
-        character_bottom = character.y_coordinate + character.height
-        within_platform_height = character_bottom >= platform.y_coordinate
-        # Prevents character from clipping on top of platform
-        if last_character_bottom is not None:
-            return within_platform_height and within_platform_length and last_character_bottom <= platform.y_coordinate
-
-        return within_platform_height and within_platform_length
-    def platform_collision(character, platform):
-        character_bottom = character.y_coordinate + character.height
-        platform_bottom = platform.y_coordinate + platform.width
-        character_right_edge = character.x_coordinate + character.width
-        platform_end = platform.x_coordinate + platform.length
-
-        y_coordinate_collision = (character_bottom > platform.y_coordinate and
-                                  platform_bottom > character.y_coordinate)
-        # Depends what angle its coming from if its from the right edge it would have to be greater than the platforms end
-        right_side_collision = (character.x_coordinate <= platform_end and
-                               character_right_edge >= platform.x_coordinate)
+    def on_platform(platform, player, is_player):
+        is_platform_collision = CollisionsFinder.object_collision(player, platform)
+        if not is_player or len(HistoryKeeper.get("player")) <= 1:
+            return is_platform_collision
         
-        return y_coordinate_collision and right_side_collision
-    def platform_right_boundary(character, platform, last_player_x_coordinate):
-        platform_end = platform.length + platform.width
-        return CollisionsFinder.platform_collision(character, platform) and last_player_x_coordinate >= platform_end
+        # If this logic isn't in place last_player_y_coordinate could be below the platform's y_coordinate, which would make it do gravity
+        # EX: (platform y coordinate is 400) player's bottom goes from 399 to 401 putting it at 400, but last player bottom would be 401 causing gravity
+        if player.bottom == platform.y_coordinate:
+            return is_platform_collision
 
-    def platform_left_boundary(character, platform, last_player_x_coordinate):
-        last_character_right_edge = last_player_x_coordinate + character.width
-        return CollisionsFinder.platform_collision(character, platform) and last_character_right_edge < platform.x_coordinate
+        last_player = HistoryKeeper.get_last("player")
+        if last_player is None:
+            return
+        return is_platform_collision and last_player.bottom <= platform.y_coordinate
+
+    def object_collision(object1, object2):
+        within_platform_height = (object1.bottom >= object2.y_coordinate and
+                                  object1.y_coordinate <= object2.bottom)
+        within_platform_length = (object1.x_coordinate <= object2.right_edge and
+                                  object1.right_edge >= object2.x_coordinate)
+        
+        return within_platform_height and within_platform_length
+
+    def is_sidescrolling__collision(unmoving_object, sidescrolling_object):
+        prev_object_iteration = HistoryKeeper.get_last(sidescrolling_object.name)
+        if prev_object_iteration is None:
+            return False
+        object_sidescrolled = prev_object_iteration.x_coordinate > sidescrolling_object.x_coordinate
+        return prev_object_iteration.x_coordinate > sidescrolling_object.x_coordinate and object_sidescrolled
+
+    def is_side_collision(player, platform):
+        # So the player doesn't land on the platform and also can't move
+        player_is_on_platform = CollisionsFinder.on_platform(platform, player, True)
+        return CollisionsFinder.object_collision(platform, player) and not player_is_on_platform
+
+    def platform_rightside_collision(player, platform):
+        # So player doesn't go from in and out of platform see on_platform for me details
+        if player.x_coordinate == platform.right_edge:
+            return True
+        last_player = HistoryKeeper.get_last("player")
+        if last_player is None:
+            return
+        is_side_collision = CollisionsFinder.is_side_collision(player, platform)
+        return is_side_collision and last_player.x_coordinate >= platform.right_edge
+
+    def platform_leftside_collision(player: GameObject, platform: GameObject):
+        # So player doesn't go from in and out of platform see on_platform for me details
+        if player.right_edge == platform.x_coordinate:
+            return True
+        
+        last_player = HistoryKeeper.get_last("player")
+        if last_player is None:
+            return
+        if not CollisionsFinder.is_side_collision(player, platform):
+            return
+        leftside_collision = (last_player.right_edge <= platform.x_coordinate
+                              or CollisionsFinder.is_sidescrolling__collision(player, platform))
+        return leftside_collision
 
 class PhysicsEngine:
-    # TODO change me back to 1121
     gravity_pull = y_velocities
-    character_died = False
+    player_died = False
     
-    def do_gravity(character):
-        character.y_coordinate += VelocityCalculator.calc_distance(PhysicsEngine.gravity_pull)
+    def do_gravity(player):
+        player.y_coordinate += VelocityCalculator.calc_distance(PhysicsEngine.gravity_pull)
 
     def is_beyond_screen_right(player: Player):
-        if player.x_coordinate >= screen_width - player.width:
+        if player.x_coordinate >= screen_length - player.length:
             return True
 
         return False
@@ -77,78 +91,49 @@ class PhysicsEngine:
 
         return False
 
-    def screen_boundaries(player: Player):
+    def player_hit_top_of_screen(player: Player):
         if player.y_coordinate <= 0:
             player.can_jump = False
 
-    def is_within_screen(player: Player):
+    def is_below_screen_bottom(player: Player):
         if player.y_coordinate >= screen_height:
-            return False
+            return True
 
-        return True
-
-    def platform_side_scrolling(player: Player, platform: Platform):
-        if player.move_right:
-            platform.move_left(VelocityCalculator.calc_distance(player.left_and_right_velocity))
-
-    def enemy_side_scrolling(player: Player, enemy: SimpleEnemy):
-        if player.move_right:
-            enemy.side_scroll(VelocityCalculator.calc_distance(player.left_and_right_velocity))
+        return False
 
 
-class InteractionsFinder:
-    def player_whip(player: Player, whip: Whip):
-        if player.throw_whip:
-            whip.extend_whip(player.is_facing_right)
+class InteractionEngine:
+    def player_enemy_interactions(player: Player, enemy: SimpleEnemy):
+        if not CollisionsFinder.object_collision(player, enemy):
+            return
 
-        whip.render(player)
-
-    def player_enemy_interactions(player: Player, enemy: SimpleEnemy, last_player_x_coordinate, last_enemy_x_coordinate):
-        enemy_right_side = enemy.x_coordinate + enemy.width
-        player_bottom = player.y_coordinate + player.height
-        enemy_bottom = enemy.y_coordinate + enemy.height
-
-        right_collision = (player.x_coordinate + player.width >=
-                                  enemy.x_coordinate and player.x_coordinate <= enemy_right_side)
-
-        left_collision = (player.x_coordinate <= enemy_right_side 
-                          and player.x_coordinate  >= enemy.x_coordinate)
-
-        y_coordinate_collision = (player_bottom >= enemy.y_coordinate
-                                  and player.y_coordinate <= enemy_bottom)
-        x_coordinate_collision = left_collision or right_collision
-        if x_coordinate_collision and y_coordinate_collision and last_player_x_coordinate + player.width < last_enemy_x_coordinate:
-            player.knockback_left()
-
-        elif x_coordinate_collision and y_coordinate_collision and last_player_x_coordinate > last_enemy_x_coordinate + enemy.width:
-            player.knockback_right()
+        player_halfway_point = player.x_coordinate + .5 * player.length
+        enemy_halfway_point = enemy.x_coordinate + .5 * enemy.length
+        last_enemy = HistoryKeeper.get_last(enemy.name)
+        last_player = HistoryKeeper.get_last("player")
+        if (last_enemy or last_player) is None:
+            return
+        is_sidescrolling_collision = CollisionsFinder.is_sidescrolling__collision(player, enemy)
+        is_leftside_movement_collision = last_player.right_edge < last_enemy.x_coordinate
+        landing_collision = player_halfway_point < enemy_halfway_point
+        knockback_is_left = is_sidescrolling_collision or is_leftside_movement_collision or landing_collision
+        
+        player.knockback(10, direction_is_left=knockback_is_left)
 
     def enemy_whip_interactions(enemy: SimpleEnemy, whip: Whip):
         if not whip.whip_is_extending:
             return
-        enemy_right_edge = enemy.x_coordinate + enemy.width
-        whip_left_end = whip.x_coordinate + whip.length
-        collision_left = whip.x_coordinate >= enemy_right_edge and whip_left_end <= enemy_right_edge
+        # whip_leftside_end = whip.x_coordinate + whip.length
+        # collision_left = whip.x_coordinate >= enemy.right_edge and whip_leftside_end <= enemy.right_edge
  
-        collision_right = (whip.x_coordinate <= enemy.x_coordinate + enemy.width
-                           and whip.x_coordinate + whip.length >= enemy_right_edge)
+        # collision_right = (whip.x_coordinate <= enemy.x_coordinate
+        #                    and whip.right_edge >= enemy.x_coordinate)
 
-        x_coordinate_collision = collision_left or collision_right
+        # x_coordinate_collision = collision_left or collision_right
 
-        y_coordinate_collision = (whip.y_coordinate + whip.height >= enemy.y_coordinate
-                                  and whip.y_coordinate <= enemy.y_coordinate + enemy.height)
-        if y_coordinate_collision and x_coordinate_collision and whip.player_is_facing_right:
-            enemy.knockback_right()
-        
-        elif y_coordinate_collision and x_coordinate_collision and not whip.player_is_facing_right:
-            enemy.knockback_left()
-    
-    def player_wall_of_death_interactions(player: Player):
-        if player.move_right:
-            WallOfDeath.move_backwards(VelocityCalculator.calc_distance(player.left_and_right_velocity))
-        
-        wall_of_death_end = WallOfDeath.x_coordinate + WallOfDeath.length
-        if wall_of_death_end >= player.x_coordinate:
-            player.current_health = 0
-        
-
+        # y_coordinate_collision = (whip.bottom >= enemy.y_coordinate
+        #                           and whip.y_coordinate <= enemy.bottom)
+        if not CollisionsFinder.object_collision(enemy, whip):
+            return
+        knockback_is_left = (enemy.x_coordinate <= whip.x_coordinate)
+        enemy.knockback(10, direction_is_left=knockback_is_left)

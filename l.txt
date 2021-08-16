@@ -1,0 +1,53 @@
+controlls = pygame.key.get_pressed()
+        # TODO why use this logic?
+        if self.is_continuous_event(controlls[pygame.K_UP], "jump", self.on_platform):
+            self.can_jump = False
+
+        elif self.on_platform:
+            self.can_jump = True
+        # TODO possible this is used to move left
+        player_moving_right = controlls[pygame.K_RIGHT] and self.can_move_right
+            
+        # TODO why screen_length * .2?
+        player_location_to_start_sidescrolling = VelocityCalculator.give_measurement(screen_length, 20)
+        if not player_moving_right or self.x_coordinate < player_location_to_start_sidescrolling:\
+            self.game_is_sidecrolling = False
+        if player_moving_right:
+            self.is_facing_right = True
+        if player_moving_right and self.x_coordinate >= player_location_to_start_sidescrolling:
+            SideScrollableComponents.side_scroll_all(VelocityCalculator.calc_distance(self.running_velocity))
+            self.game_is_sidecrolling = True
+
+        elif player_moving_right:
+            self.x_coordinate += VelocityCalculator.calc_distance(self.running_velocity)
+
+        if controlls[pygame.K_LEFT] and self.can_move_left:
+            self.x_coordinate -= VelocityCalculator.calc_distance(self.running_velocity)
+            self.is_facing_right = False
+
+        # if controlls[pygame.K_UP]:
+        #     self.jump_key_held_down = True
+
+        # else: 
+        #     self.jump_key_held_down = False
+        # TODO what is this doing?
+        # if self.is_jumping and not self.can_jump:
+        #     self.stay_up_in_air = True
+        
+        elif self.can_jump and self.jump_key_held_down:
+            self.do_jump()
+        # TODO explain logic inside if statement
+        jump_stopped = self.is_height_for_apex or 
+        if self.is_height_for_apex() or (self.is_jumping and not self.jump_key_held_down):
+            # print("DO A APEX")
+            self.do_apex()
+
+        if controlls[pygame.K_DOWN] and self.can_move_down:
+            self.y_coordinate += VelocityCalculator.calc_distance(self.downwards_velocity)
+
+        if controlls[pygame.K_SPACE] and not self.space_held_in:
+            self.item.use_item()
+            self.space_held_in = True
+
+        if not controlls[pygame.K_SPACE]:
+            self.space_held_in = False

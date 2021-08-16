@@ -1,90 +1,92 @@
+from UtilityClasses import GameObject
 from velocity_calculator import VelocityCalculator
-import pygame
 from important_variables import (
-    win,
     screen_height,
-    screen_width,
-    # consistency_keeper, 
-    # file
+    screen_length,
 )
-from players import Player
+from abc import abstractmethod
 
-
-class Item:
-    color = (0, 250, 0)
-    x_coordinate = 0
-    y_coordinate = 0
-    base_length = VelocityCalculator.give_measurement(screen_width, 2)
-    length = 0
+class Item(GameObject):
     base_height = VelocityCalculator.give_measurement(screen_height, 2)
-    height = base_height
-
-    def draw(self):
-        pygame.draw.rect(win, (self.color), (self.x_coordinate,
-                         self.y_coordinate, self.length, self.height))
+    base_length = VelocityCalculator.give_measurement(screen_length, 2)
+    
+    def __init__(self):
+        self.color = (0, 250, 0)
+        self.x_coordinate = 0
+        self.y_coordinate = 0
+        self.length = 0
+        self.height = self.base_height
+    
+    @abstractmethod
+    def use_item(self):
+        pass
 
 
 class Whip(Item):
     whip_is_extending = False
-    secs_needed_to_extend = 2
+    secs_needed_to_start_extending = .2
     secs_extended = 0
-    velocity = VelocityCalculator.give_velocity(screen_width, 336)
+    velocity = VelocityCalculator.give_velocity(screen_length, 336)
     up_length = VelocityCalculator.give_measurement(screen_height, 14)
-    max_length = VelocityCalculator.give_measurement(screen_width, 8.75)
-    player_is_facing_right = False
+    max_length = VelocityCalculator.give_measurement(screen_length, 8.75)
+    player = None
 
-    # def _improve_variables(self):
-    #     self.whip_speed = screen_width * (
-    #         consistency_keeper.calculate_new_speed(.0003))
+    def __init__(self, player):
+        self.player = player
 
-    def extend_whip(self, player_is_facing_right):
+    def use_item(self):
         if not self.whip_is_extending:
             self.whip_is_extending = True
-            self.player_is_facing_right = player_is_facing_right
 
-    def render(self, player: Player):
-        if not self.whip_is_extending:
-            return
-        # self._improve_variables()
-        is_right_length = self.length == 0 or self.length == self.base_length
-        whip_is_upwards = self.whip_is_extending and is_right_length and (
-             self.secs_extended <= self.secs_needed_to_extend)
-             
-        player_right_edge = player.x_coordinate + player.width
-        # Puts the whip at the halfway point of the player
-        whip_y_coordiante = player.y_coordinate + (player.height * .5)
-        if whip_is_upwards:
-            self.y_coordinate = whip_y_coordiante - player.height
-            self.height = self.up_length
-            self.length = self.base_length
-            self.secs_extended += VelocityCalculator.time
-            self.draw()
+    def draw_whip_upwards(self):
+        player_midpoint = self.player.y_coordinate + (self.player.height * .5)
+        self.y_coordinate = player_midpoint - self.up_length
+        self.height = self.up_length
+        self.length = self.base_height
+        self.secs_extended += VelocityCalculator.time
+        if self.player.is_facing_right:
+            self.x_coordinate = self.player.right_edge
+        else:
+            self.x_coordinate = self.player.x_coordinate - self.length
 
-        if whip_is_upwards and self.player_is_facing_right:
-            self.x_coordinate = player_right_edge
-            return 
+    def whip_is_upwards(self):
+        # If whip isn't drawn then its length is 0, and when it is upwards it is base_height
+        # Because its base_height is the height of the whip when extending meaning if it is facing
+        # Upwards the length should be the whips extending height
+        is_right_length = self.length == 0 or self.length == self.base_height
+        time_is_too_long = self.secs_extended > self.secs_needed_to_start_extending
+        return is_right_length and not time_is_too_long
 
-        if whip_is_upwards and not self.player_is_facing_right:
-            self.x_coordinate = player.x_coordinate - self.length
-            return
+    def draw_whip_extending(self):
+        self.height = self.base_height
+        player_midpoint = self.player.y_coordinate + (self.player.height * .5)
+        self.y_coordinate = player_midpoint
+        length_increase = VelocityCalculator.calc_distance(self.velocity)
+        self.length += length_increase
+        if self.player.is_facing_right:
+            self.x_coordinate = self.player.right_edge
+        else:
+            # Since it draw from left to right the x_coordinate would have to move to the left
+            # By the amount of the increase of length
+            self.x_coordinate = self.player.x_coordinate - self.length
 
-        if self.length >= 70 or self.length <= -70:
+    def render(self):
+        whip_is_too_long = self.length >= 70
+
+        if whip_is_too_long:
             self.whip_is_extending = False
             self.length = 0
             self.height = 0
             self.secs_extended = 0
+            return
 
-        if self.whip_is_extending and not whip_is_upwards:
-            self.height = self.base_height
-            self.y_coordinate = whip_y_coordiante
+        if not self.whip_is_extending:
+            return
 
-        if self.whip_is_extending and self.player_is_facing_right and not whip_is_upwards:
-            self.x_coordinate = player_right_edge
-            self.length += VelocityCalculator.calc_distance(self.velocity)
-            # self.draw()
+        if self.whip_is_upwards():
+            self.draw_whip_upwards()
         
-        if self.whip_is_extending and not self.player_is_facing_right and not whip_is_upwards:
-            self.x_coordinate = player.x_coordinate
-            self.length -= VelocityCalculator.calc_distance(self.velocity)
-            # self.draw()
+        else:
+            self.draw_whip_extending()
+
         self.draw()
